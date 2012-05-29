@@ -17,6 +17,9 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #include "avro.h"
 
@@ -47,7 +50,13 @@ int process_file(const char *in_filename, const char *out_filename)
 		avro_schema_t oschema;
 		avro_file_reader_t oreader;
 
-		avro_file_reader(out_filename, &oreader);
+		if (avro_file_reader(out_filename, &oreader)) {
+			fprintf(stderr, "Error opening %s:\n   %s\n",
+					out_filename, avro_strerror());
+			avro_file_reader_close(reader);
+			return 1;
+		}
+
 		oschema = avro_file_reader_get_writer_schema(oreader);
 
 		if (avro_schema_equal(oschema, wschema) == 0) {
@@ -96,6 +105,32 @@ static void usage(void)
 		"Usage: avroappend [<input avro file>] <output avro file>\n");
 }
 
+static int check_filenames(const char *in_filename, const char *out_filename)
+{
+	if (in_filename == NULL) {
+		return 0;
+	}
+
+	struct stat in_stat;
+	struct stat out_stat;
+
+	if (stat(in_filename, &in_stat) == -1) {
+		fprintf(stderr, "stat error on %s: %s\n", in_filename, strerror(errno));
+		return 2;
+	}
+
+	if (stat(out_filename, &out_stat) == -1) {
+		fprintf(stderr, "stat error on %s: %s\n", out_filename, strerror(errno));
+		return 2;
+	}
+
+	if (in_stat.st_dev == out_stat.st_dev && in_stat.st_ino == out_stat.st_ino) {
+		return 1;
+	}
+
+	return 0;
+}
+
 int main(int argc, char **argv)
 {
 	char *in_filename;
@@ -113,6 +148,16 @@ int main(int argc, char **argv)
 	} else {
 		fprintf(stderr, "Not enough arguments\n\n");
 		usage();
+		exit(1);
+	}
+
+	int ret = check_filenames(in_filename, out_filename);
+
+	if (ret == 1) {
+		fprintf(stderr, "Files are the same.\n");
+	}
+
+	if (ret > 0) {
 		exit(1);
 	}
 
